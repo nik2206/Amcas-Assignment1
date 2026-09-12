@@ -1,0 +1,4 @@
+# Ignore large trace files
+*.ch0
+*.ch1
+*.trace
