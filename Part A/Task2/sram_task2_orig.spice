@@ -13,12 +13,13 @@ Cbl bl 0 180f IC='VBL'
 Cblb blb 0 180f IC='VBL'
 .ic v(q)=0 v(qb)='VDD'
 .control
+set color0 = white
+
  tran 5p 4n uic
  let dv_vec = v(blb) - v(bl)
- meas tran dv FIND dv_vec AT=2n
+ meas tran dv FIND dv_vec AT=2.0n
  meas tran qmax MAX v(q) FROM=1n TO=4n
  wrdata read.csv v(bl) v(blb) v(q) v(qb)
  plot v(q)
-
 .endc
 .end

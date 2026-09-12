@@ -1,0 +1,95 @@
+[Ramulator::LoadStoreTrace] [info] Loading trace file ../workload/l2miss.trace ...
+[Ramulator::LoadStoreTrace] [info] Loaded 2242074 lines.
+Frontend:
+  impl: LoadStoreTrace
+
+MemorySystem:
+  impl: GenericDRAM
+  total_num_other_requests: 0
+  total_num_write_requests: 1717626
+  total_num_read_requests: 524448
+  memory_system_cycles: 8641291
+  DRAM:
+    impl: DDR4
+  AddrMapper:
+    impl: RoBaRaCoCh
+
+
+  Controller:
+    impl: Generic
+    id: Channel 0
+    avg_read_latency_0: 14.411521
+    read_queue_len_avg_0: 17.2086983
+    write_queue_len_0: 94414479
+    queue_len_0: 243173243
+    num_other_reqs_0: 0
+    num_write_reqs_0: 1558677
+    read_latency_0: 148805726
+    priority_queue_len_avg_0: 0.00617754925
+    row_hits_0: 523908
+    priority_queue_len_0: 53382
+    row_misses_0: 7131
+    row_conflicts_0: 189920
+    read_row_misses_0: 2543
+    queue_len_avg_0: 28.1408463
+    read_row_conflicts_core_0: 0
+    read_row_hits_0: 259664
+    write_queue_len_avg_0: 10.9259691
+    read_row_conflicts_0: 4
+    write_row_misses_0: 4588
+    write_row_conflicts_0: 189916
+    read_queue_len_0: 148705382
+    write_row_hits_0: 264244
+    read_row_hits_core_0: 0
+    read_row_misses_core_0: 0
+    num_read_reqs_0: 10325470
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    ControllerPlugin:
+      impl: TraceRecorder
+
+
+
+  Controller:
+    impl: Generic
+    id: Channel 1
+    read_queue_len_avg_1: 30.1046925
+    priority_queue_len_1: 103824
+    write_queue_len_1: 206279576
+    num_write_reqs_1: 10573598
+    row_hits_1: 917069
+    row_misses_1: 14861
+    avg_read_latency_1: 444.333252
+    queue_len_avg_1: 53.9880905
+    read_queue_len_1: 260143401
+    read_row_misses_1: 2544
+    priority_queue_len_avg_1: 0.0120148715
+    read_row_hits_1: 259656
+    queue_len_1: 466526801
+    read_row_conflicts_1: 9
+    num_read_reqs_1: 585697
+    num_other_reqs_1: 0
+    row_conflicts_1: 589104
+    write_row_hits_1: 657413
+    write_queue_len_avg_1: 23.8713856
+    write_row_misses_1: 12317
+    write_row_conflicts_1: 589095
+    read_row_hits_core_0: 0
+    read_row_misses_core_0: 0
+    read_latency_1: 260244657
+    read_row_conflicts_core_0: 0
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    ControllerPlugin:
+      impl: TraceRecorder
+
+
+

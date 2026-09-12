@@ -1,0 +1,14 @@
+
+Note: No compatibility mode selected!
+
+
+Circuit: * amcas takehomelab - 6t read, task 4: repeat task 1 at 85c
+
+Doing analysis at TEMP = 85.000000 and TNOM = 27.000000
+
+Using transient initial conditions
+
+No. of Data Rows : 817
+dv                  =  5.821149e-01
+qmax                =  2.207623e-01 at=  1.067500e-09
+Note: Simulation executed from .control section 

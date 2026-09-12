@@ -1,0 +1,91 @@
+Task 4 -- Channel count doubled (1 -> 2)
+==========================================
+(Same trace, same scheduler (FRFCFS), same DRAM/timing, same address
+mapping, same row policy -- ONLY the channel count changed relative to
+Task 1. RoBaRaCoCh places Channel at the least-significant field, so
+channel selection comes from the lowest address bit above the cache-line
+offset.)
+
+--- Raw per-channel stats reported by Ramulator2 ---
+memory_system_cycles (global)  : 8,641,291
+
+                          Channel 0        Channel 1
+row_hits                  523,908          917,069
+row_misses                 7,131           14,861
+row_conflicts             189,920          589,104
+read_latency (sum)        148,805,726      260,244,657
+true reads (hits+miss+conf) 262,211        262,209
+
+--- Channel load balance (unexpected finding) ---
+Total row-buffer events (hits+misses+conflicts): Ch0 = 720,959 (32.2%),
+Ch1 = 1,521,034 (67.8%). The two channels are NOT evenly loaded (roughly
+1:2.1) despite Channel sitting at the least-significant address bit (which
+should, in principle, split traffic evenly). This is a real, measured
+imbalance in this run and is worth noting: Channel 1 is the effective
+bottleneck channel, carrying more than double Channel 0's request volume.
+(Likely cause: our workload's strided/random phases have some structure --
+e.g. an 8KiB stride in phase 2, and the low bits of our xorshift PRNG in
+phase 3 -- that correlates with the single LSB channel-select bit rather
+than being perfectly uniform. Not investigated further here, but it means
+the 2-channel result is not the theoretical best case for this trace.)
+
+--- Task 1 (1 channel) vs Task 4 (2 channels) ---
+                              Task 1 (1ch)        Task 4 (2ch)     Change
+memory_cycles                 16,700,347          8,641,291        1.933x speedup
+avg read latency (cycles)     811.36              780.01           only 3.9% reduction
+
+--- Key finding: throughput improved a lot; per-request latency barely moved ---
+This is the "latency barely improves" case the assignment describes.
+Doubling channels nearly DOUBLES total throughput (memory_cycles almost
+halved, 1.933x), because there are now twice as many independent banks in
+total across which FRFCFS can find ready work, and twice as many requests
+can be in flight to DRAM concurrently. But the average LATENCY of any
+individual completed request barely changes (811 -> 780 cycles, -3.9%),
+because per-request latency is bounded by the intrinsic DRAM protocol
+timing of whichever single bank that request lands in -- adding more
+channels adds more banks working in parallel, but does not shrink the
+fixed activate/precharge/column-access sequence any single request must
+individually wait through.
+
+--- Identifying the binding timing parameter ---
+Method: (1) confirm the "improves throughput, not latency" signature above
+(rules out channel/bandwidth contention as the per-request bottleneck --
+if that were binding, more channels would directly cut per-request
+latency, not just total completion time); (2) read the actual DDR4_3200AA
+timing preset values directly from source
+(src/dram/impl/DDR4.cpp, "DDR4_3200AA" row, column header:
+  rate nBL nCL nRCD nRP nRAS nRC nWR nRTP nCWL nCCDS nCCDL ... tCK_ps):
+
+  DDR4_3200AA = {3200, 4, 22, 22, 22, 52, 74, 24, 12, 16, 4, 8, ...}
+    -> nRCD (tRCD) = 22 cycles
+       nRP  (tRP)  = 22 cycles
+       nRAS (tRAS) = 52 cycles
+       nCCDS/nCCDL (tCCD, same/different bank group) = 4 / 8 cycles
+  (all in DRAM-clock cycles, tCK = 625 ps, consistent with a real
+   DDR4-3200 CL=22 part)
+
+  tRAS (52 cycles) is by far the largest of the four: 2.36x tRCD, 2.36x
+  tRP, and 6.5x-13x tCCD.
+
+(3) cross-reference with the row-buffer composition of this trace: writes
+outnumber reads more than 3:1 (1,717,626 vs 524,448) and have very poor
+locality (~29% row-buffer hit rate from Tasks 1-3), so roughly 70% of all
+writes trigger a full PRECHARGE-then-ACTIVATE sequence on their bank. Any
+such sequence must first satisfy tRAS on the row currently open in that
+bank (a row cannot be precharged until it has been open for at least
+tRAS) before the PRE can even issue, and only then can the new row's
+tRCD begin. Because tRAS gates the START of the PRE/ACT chain and is
+2.4x longer than either tRCD or tRP individually, it is the dominant
+single term in the latency of every row-conflict access -- which is the
+majority case for the write-dominated portion of this trace.
+
+Conclusion: tRAS is the binding parameter. It cannot be hidden by adding
+channels because it is a strictly PER-BANK constraint -- every bank in
+every channel must independently satisfy its own tRAS before that bank's
+row can be closed and reopened, regardless of how many other channels or
+banks exist elsewhere in the system. Doubling channel count adds more
+banks total (letting more row-conflict events proceed concurrently across
+different banks, which is exactly why total memory_cycles nearly halved),
+but it cannot shrink the tRAS floor any individual bank's own row-conflict
+sequence must wait through, which is exactly why the average latency of
+any single completed request barely improved.

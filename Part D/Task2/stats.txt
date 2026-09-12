@@ -1,0 +1,87 @@
+Task 2 -- Scheduler switched from FRFCFS to FCFS
+==================================================
+(Same trace, same DRAM/timing, same address mapping, same row policy,
+ 1 channel -- ONLY the scheduler changed.)
+
+NOTE ON IMPLEMENTATION: This Ramulator2 build (v2.0a) ships only FRFCFS
+(src/dram_controller/impl/scheduler/generic_scheduler.cpp) -- there is no
+built-in "FCFS" scheduler. We added one (fcfs_scheduler.cpp, registered as
+"FCFS") that is structurally identical to FRFCFS except its compare()
+function drops FRFCFS's "jump to whichever request is ready" fast path and
+always selects the request with the strictly earliest arrival timestamp.
+Per generic_dram_controller.cpp's schedule_request(), the scheduler's
+chosen candidate is checked for DRAM-timing readiness *after* selection;
+if it is not ready, the controller issues nothing that cycle rather than
+falling back to a different, ready request. This reproduces true blocking
+FCFS semantics.
+
+--- Raw stats reported by Ramulator2 ---
+memory_system_cycles          : 41,272,735
+read_latency_0 (sum, cycles)  : 1,230,508,949
+row_hits_0                    : 994,013
+row_misses_0                  : 77,502
+row_conflicts_0                : 1,170,493
+read_row_hits/misses/conflicts : 495,529 / 579 / 28,307
+write_row_hits/misses/conflicts: 498,484 / 76,923 / 1,142,186
+
+(avg_read_latency_0 as printed is unreliable for the same reason noted in
+Task 1 -- inflated denominator from send()-attempt counting. Corrected
+below using total_num_read_requests = 524,448.)
+
+--- Task 1 (FRFCFS) vs Task 2 (FCFS) ---
+                              Task 1 (FRFCFS)     Task 2 (FCFS)     Change
+memory_cycles                 16,700,347          41,272,735        2.47x
+avg read latency (cycles)     811.36              2346.29           2.89x
+row-buffer hit rate (overall) 43.83%              44.34%           +0.50 pp
+  read-only hit rate           92.93%              94.49%          +1.56 pp
+  write-only hit rate          28.84%              29.02%          +0.18 pp
+
+--- Key finding: the row-buffer hit rate did NOT collapse ---
+This contradicts the naive expectation that FCFS wrecks row-buffer
+locality. In this experiment the hit rate is essentially unchanged (even
+marginally higher) under FCFS. The reason: row-buffer hit/miss/conflict
+outcomes for a given bank are governed by the INTRINSIC address locality
+of the trace within that bank's own request sub-stream -- a property of
+the workload (our sequential/strided/random access phases), not of
+scheduler choice. Both FRFCFS and FCFS eventually issue each bank's
+requests in essentially the same relative order (FRFCFS's reordering only
+resolves TIES/stalls between *different* banks, not the ordering of
+requests destined for the *same* bank).
+
+--- What FCFS actually costs: exposed tRCD/tRP latency (loss of MLP) ---
+What collapses under FCFS is memory-level parallelism (MLP) across banks,
+not row-buffer locality within a bank:
+
+  - FRFCFS's compare() has a fast path: "if one candidate request is ready
+    and the other isn't, always pick the ready one" (check_ready() in
+    generic_scheduler.cpp). This means whenever the oldest request is
+    stuck waiting out an ACT (tRCD) or a PRE (tRP) or holding a row for
+    tRAS in its bank, FRFCFS can look further down the queue and issue a
+    *different*, already-ready command to a *different* bank instead of
+    idling. The channel keeps doing useful work while one bank's
+    activation/precharge latency is "hidden" behind another bank's access.
+
+  - FCFS has no such fallback: schedule_request() picks strictly the
+    oldest-arrived request and, if it isn't ready, the controller issues
+    NOTHING that cycle -- even if some other bank has a fully ready
+    request sitting right behind it in the buffer. Every tRCD (row
+    activate) and tRP (row precharge) the head-of-line request must wait
+    through is now fully exposed as dead time on the channel, instead of
+    being overlapped with other banks' work.
+
+Quantifying the cost:
+  Extra memory-system cycles (Task2 - Task1) : 41,272,735 - 16,700,347
+                                                = 24,572,388 cycles
+  Row-miss + row-conflict events under FCFS   : 77,502 + 1,170,493
+                                                = 1,247,995 events
+  Average exposed idle cycles per miss/conflict: 24,572,388 / 1,247,995
+                                                = 19.69 cycles/event
+
+  This lines up almost exactly with DDR4_3200AA's own tRCD = 22 and
+  tRP = 22 (DRAM-clock cycles, see src/dram/impl/DDR4.cpp preset table).
+  Every row miss/conflict under FCFS effectively stalls the whole channel
+  for close to one full tRCD-or-tRP window that FRFCFS would otherwise
+  have filled with a ready command from a different bank -- confirming
+  that the ~2.47x blowup in total execution time (and the ~2.89x blowup
+  in average read latency) comes from losing this cross-bank latency-
+  hiding, not from any change in row-buffer locality itself.

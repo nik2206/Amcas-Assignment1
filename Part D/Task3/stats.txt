@@ -1,0 +1,92 @@
+Task 3 -- Address mapping changed: row bits placed BELOW bank bits
+=====================================================================
+(Same trace, same scheduler (FRFCFS), same DRAM/timing, same row policy,
+ 1 channel -- ONLY the address mapping changed, compared against Task 1.)
+
+IMPLEMENTATION NOTE: None of this Ramulator2 version's built-in address
+mappers isolate exactly "swap Row and Bank, change nothing else." We added
+a new mapper (src/addr_mapper/impl/task3_addr_mapper.cpp, registered as
+"BaRoRaCoCh") that is structurally identical to the Task 1/2 baseline
+RoBaRaCoCh except Bank and Row are swapped in bit significance:
+
+  DDR4 level order (src/dram/impl/DDR4.cpp):
+    0=channel, 1=rank, 2=bankgroup, 3=bank, 4=row, 5=column
+
+  Baseline RoBaRaCoCh significance (low->high):
+    channel < column < rank < bankgroup < bank < row
+  Task 3 BaRoRaCoCh significance (low->high):
+    channel < column < rank < bankgroup < row  < bank
+
+Channel stays least significant, Column second-least, Rank/BankGroup keep
+identical relative positions to the baseline -- only Row and Bank trade
+places. This isolates row-vs-bank ordering as the single changed variable.
+
+--- Raw stats reported by Ramulator2 ---
+memory_system_cycles          : 25,331,345
+read_latency_0 (sum, cycles)  : 636,850,219
+row_hits_0                    : 981,674
+row_misses_0                  : 12,377
+row_conflicts_0                : 1,247,959
+read_row_hits/misses/conflicts : 487,330 / 3,935 / 33,152
+write_row_hits/misses/conflicts: 494,344 / 8,442 / 1,214,807
+
+--- Task 1 (baseline, RoBaRaCoCh) vs Task 3 (BaRoRaCoCh) ---
+                              Task 1 (baseline)   Task 3 (row<bank)  Change
+memory_cycles                 16,700,347          25,331,345         1.517x
+avg read latency (cycles)     811.36              1214.32            1.497x
+row-buffer hit rate (overall) 43.83%              43.79%            -0.04 pp
+  row_hits                    982,768             981,674           -1,094 (~0)
+  row_misses + row_conflicts  1,259,246           1,260,336          +1,090 (~0)
+
+--- Key finding: row-buffer locality is essentially UNCHANGED ---
+The per-bank row-hit/miss/conflict counts are nearly identical between the
+two mappings (43.83% vs 43.79% overall hit rate -- a difference of noise
+size, not signal). This makes sense: whether a given bank sees the same
+row accessed twice in a row is a property of the trace's access pattern
+projected onto WHATEVER bank a given address lands in -- and both mappings
+still deterministically route the same requests into buckets with the same
+underlying spatial locality; the row-vs-bank BIT ORDER doesn't change
+whether "this bank's next access reuses its currently open row," it only
+changes WHICH bank number a given address is routed to.
+
+--- What actually degrades: bank-level parallelism (BLP) ---
+What the row<->bank swap DOES change is how many DIFFERENT banks nearby
+addresses spread across:
+
+  - In the baseline (RoBaRaCoCh), Bank/BankGroup bits sit LOW in
+    significance (just above Rank, well below Row). This means spatially
+    nearby addresses -- exactly what our sequential and strided workload
+    phases produce -- round-robin across MANY different banks in quick
+    succession. FRFCFS has a rich pool of different-bank requests to pick
+    a "ready" one from whenever the current bank is mid-tRCD/tRAS/tRP,
+    hiding that latency behind other banks' work.
+
+  - In Task 3 (BaRoRaCoCh), Bank is now the MOST significant field --
+    coarser than Row. A whole contiguous block of nearby addresses (an
+    entire row's worth of address space) now maps to the SAME bank number
+    before the bank index changes at all. This concentrates the
+    workload's naturally spatially-local traffic onto far fewer banks
+    being active at any given time, starving FRFCFS of alternative-bank
+    ready requests to reorder onto.
+
+Quantifying the loss of bank-level parallelism:
+  Exposed cost per row-miss/conflict event (memory_cycles / (misses+
+  conflicts)) is a direct proxy for how much of each ACT/PRE's true
+  tRCD/tRP latency FRFCFS is able to hide behind other banks' work versus
+  how much surfaces as real stall time:
+
+    Task 1 (baseline)  : 16,700,347 / 1,259,246 = 13.26 cycles/event
+    Task 3 (row<bank)  : 25,331,345 / 1,260,336 = 20.10 cycles/event
+    Ratio              : 1.516x
+
+  This tracks the overall memory_cycles increase (1.517x) almost exactly,
+  while the event COUNT itself barely moved (1,259,246 -> 1,260,336,
+  +0.09%). In other words, essentially none of Task 3's slowdown comes
+  from doing more row activations/precharges or from worse row-buffer
+  locality -- it comes entirely from each activation/precharge now costing
+  ~52% more exposed latency on average, because far fewer alternative,
+  ready banks are available for FRFCFS to overlap it against. This is a
+  clean, isolated demonstration of bank-level parallelism loss distinct
+  from both (a) row-buffer locality (Task 1 vs Task 3: unchanged) and
+  (b) scheduler reordering capability (Task 2's FCFS effect: also
+  unchanged here, since FRFCFS is used in both Task 1 and Task 3).

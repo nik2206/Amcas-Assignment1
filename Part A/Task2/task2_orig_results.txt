@@ -1,0 +1,14 @@
+
+Note: No compatibility mode selected!
+
+
+Circuit: * amcas takehomelab - 6t read, bitline discharge and margin
+
+Doing analysis at TEMP = 27.000000 and TNOM = 27.000000
+
+Using transient initial conditions
+
+No. of Data Rows : 817
+dv                  =  7.298577e-01
+qmax                =  2.055221e-01 at=  1.057500e-09
+Note: Simulation executed from .control section 

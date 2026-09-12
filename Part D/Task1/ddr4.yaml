@@ -1,0 +1,41 @@
+# Task 1 -- baseline configuration
+# Scheduler: FRFCFS (row-buffer-aware reordering)
+# AddrMapper: RoBaRaCoCh (row bits ABOVE bank bits -- standard mapping)
+# Channels: 1
+#
+# Input: L2-miss stream captured from gem5 CommMonitor on the L2's
+# memory-side port (see ../workload/), converted to LoadStoreTrace format.
+
+Frontend:
+  impl: LoadStoreTrace
+  clock_ratio: 8
+  path: ../workload/l2miss.trace
+
+MemorySystem:
+  impl: GenericDRAM
+  clock_ratio: 3
+
+  DRAM:
+    impl: DDR4
+    org:
+      preset: DDR4_8Gb_x8
+      channel: 1
+      rank: 2
+    timing:
+      preset: DDR4_3200AA
+
+  Controller:
+    impl: Generic
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    plugins:
+      - ControllerPlugin:
+          impl: TraceRecorder
+          path: ./ctrl_trace.log
+
+  AddrMapper:
+    impl: RoBaRaCoCh

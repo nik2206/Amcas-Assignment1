@@ -1,0 +1,51 @@
+# Task 3 -- Address mapping changed so row bits sit BELOW bank bits.
+# Everything else identical to Task 1 (FRFCFS scheduler, same trace, same
+# DRAM/timing, same row policy, 1 channel) so the ONLY variable that
+# changes relative to Task 1 is the address mapping.
+#
+# NOTE ON IMPLEMENTATION: None of this Ramulator2 version's built-in
+# address mappers (ChRaBaRoCo, RoBaRaCoCh, MOP4CLXOR) perform an isolated
+# "swap only Row and Bank, leave everything else the same" transform --
+# ChRaBaRoCo changes multiple fields' relative order at once (it also
+# moves Channel and Rank), which would confound the comparison. We added
+# a new mapper (impl/task3_addr_mapper.cpp, registered as "BaRoRaCoCh")
+# that is structurally identical to the Task 1/2 baseline RoBaRaCoCh
+# except Bank and Row are swapped in significance -- Channel stays least
+# significant, Column second-least, Rank/BankGroup keep the same relative
+# positions, and only Row moves from "most significant" (above Bank) to
+# "second-most significant" (below Bank). See that file for the full
+# derivation of the baseline's field ordering from source.
+
+Frontend:
+  impl: LoadStoreTrace
+  clock_ratio: 8
+  path: ../workload/l2miss.trace
+
+MemorySystem:
+  impl: GenericDRAM
+  clock_ratio: 3
+
+  DRAM:
+    impl: DDR4
+    org:
+      preset: DDR4_8Gb_x8
+      channel: 1
+      rank: 2
+    timing:
+      preset: DDR4_3200AA
+
+  Controller:
+    impl: Generic
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    plugins:
+      - ControllerPlugin:
+          impl: TraceRecorder
+          path: ./ctrl_trace.log
+
+  AddrMapper:
+    impl: BaRoRaCoCh

@@ -1,0 +1,45 @@
+# Task 4 -- Channel count doubled (1 -> 2). Everything else identical to
+# Task 1 (FRFCFS scheduler, RoBaRaCoCh address mapping, same trace, same
+# DRAM/timing, same row policy) so the ONLY variable that changes relative
+# to Task 1 is the channel count.
+#
+# RoBaRaCoCh places Channel at the LEAST-significant field (see
+# linear_mappers.cpp), so with channel=2 consecutive cache-line addresses
+# alternate channel 0/1 on the lowest address bit above the transaction
+# offset -- a fine-grained, evenly-balanced channel interleave for this
+# workload (no reason to expect one channel to be starved relative to the
+# other for our trace).
+
+Frontend:
+  impl: LoadStoreTrace
+  clock_ratio: 8
+  path: ../workload/l2miss.trace
+
+MemorySystem:
+  impl: GenericDRAM
+  clock_ratio: 3
+
+  DRAM:
+    impl: DDR4
+    org:
+      preset: DDR4_8Gb_x8
+      channel: 2
+      rank: 2
+    timing:
+      preset: DDR4_3200AA
+
+  Controller:
+    impl: Generic
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    plugins:
+      - ControllerPlugin:
+          impl: TraceRecorder
+          path: ./ctrl_trace.log
+
+  AddrMapper:
+    impl: RoBaRaCoCh

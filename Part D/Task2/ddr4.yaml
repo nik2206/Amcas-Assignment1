@@ -1,0 +1,45 @@
+# Task 2 -- Scheduler switched from FRFCFS to FCFS (strict arrival order,
+# no row-buffer-aware reordering). Everything else identical to Task 1
+# (same trace, same DRAM, same address mapping, same row policy, 1 channel)
+# so the ONLY variable that changes is the scheduler.
+#
+# NOTE: This Ramulator2 version (v2.0a) does not ship a built-in "FCFS"
+# scheduler -- only FRFCFS exists in generic_scheduler.cpp. We added a new
+# implementation (impl/scheduler/fcfs_scheduler.cpp) that performs strict
+# first-come-first-served selection (always picks the request with the
+# earliest arrival timestamp, with no "jump ahead to whichever request is
+# ready" fast path that FRFCFS uses). See that file for details.
+
+Frontend:
+  impl: LoadStoreTrace
+  clock_ratio: 8
+  path: ../workload/l2miss.trace
+
+MemorySystem:
+  impl: GenericDRAM
+  clock_ratio: 3
+
+  DRAM:
+    impl: DDR4
+    org:
+      preset: DDR4_8Gb_x8
+      channel: 1
+      rank: 2
+    timing:
+      preset: DDR4_3200AA
+
+  Controller:
+    impl: Generic
+    Scheduler:
+      impl: FCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: OpenRowPolicy
+    plugins:
+      - ControllerPlugin:
+          impl: TraceRecorder
+          path: ./ctrl_trace.log
+
+  AddrMapper:
+    impl: RoBaRaCoCh

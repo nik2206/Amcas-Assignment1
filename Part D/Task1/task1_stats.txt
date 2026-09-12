@@ -1,0 +1,59 @@
+Task 1 -- Baseline (FRFCFS, RoBaRaCoCh mapping, 1 channel)
+============================================================
+
+Input: 2,242,074 requests (524,448 reads / 1,717,626 writes),
+captured from gem5 CommMonitor on the L2's memory-side port.
+
+--- Raw stats reported by Ramulator2 (as printed) ---
+memory_system_cycles          : 16,700,347
+total_num_read_requests       : 524,448
+total_num_write_requests      : 1,717,626
+read_latency_0 (sum, cycles)  : 425,515,229
+row_hits_0                    : 982,768
+row_misses_0                  : 14,951
+row_conflicts_0               : 1,244,295
+read_row_hits_0 / misses / conflicts : 487,335 / 3,951 / 33,130
+write_row_hits_0 / misses / conflicts: 495,433 / 11,000 / 1,211,165
+
+--- IMPORTANT: known stat-computation caveats in this Ramulator2 version ---
+1) avg_read_latency_0 (printed as 14.63) is UNRELIABLE.
+   Source: src/dram_controller/impl/generic_dram_controller.cpp
+     avg_read_latency = read_latency_sum / num_read_reqs   (finalize(), line ~403)
+   But num_read_reqs++ fires on every attempted send() call -- including
+   attempts rejected because the read buffer was full (send(), line ~110) --
+   not only successfully accepted requests. Under a congested queue (which
+   we have: read_queue_len_avg = 33.8, queue_len_avg = 55.2) this denominator
+   is inflated far above the true number of completed reads, making the
+   ratio meaningless. The correct denominator is the true accepted-read
+   count from the top-level "total_num_read_requests" field.
+
+2) Write latency is NOT tracked at all by this controller.
+   Source: same file, tick(), read-completion branch has a live
+   "// TODO: Add code to update statistics" comment where write departure
+   time would need to be recorded. Writes are fire-and-forget in this
+   Generic controller: once the final DRAM command issues, the write is
+   just removed from its buffer with no depart/latency bookkeeping.
+   -> There is no valid write-latency stat to report for this configuration.
+
+--- Corrected / derived metrics (used in this report) ---
+memory_cycles                    : 16,700,347   (from memory_system_cycles)
+
+Average READ latency (correct)   : 425,515,229 / 524,448 = 811.36 memory-system
+                                    clock cycles per completed read
+Average WRITE latency            : not tracked by this controller (see caveat 2)
+
+Row-buffer hit rate (overall)    : 982,768 / (982,768+14,951+1,244,295)
+                                    = 43.83%
+  - Read-only row-buffer hit rate : 487,335 / (487,335+3,951+33,130)
+                                    = 92.93%
+  - Write-only row-buffer hit rate: 495,433 / (495,433+11,000+1,211,165)
+                                    = 28.84%
+
+Interpretation: reads are heavily row-buffer friendly (92.9% hit rate) --
+most reads come from the sequential/strided phases of the workload, which
+repeatedly reuse the same open row. Writes are dominated by scattered dirty
+writebacks under L2 thrashing (a 256KiB L2 against a 32MiB working set),
+producing very poor locality (28.8% hit rate, 70% row conflicts). Because
+writes vastly outnumber reads in this trace (1.72M vs 0.52M), the poor
+write locality drags the overall row-buffer hit rate down to 43.8% even
+though reads alone look good.
